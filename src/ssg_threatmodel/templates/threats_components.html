@@ -5,44 +5,43 @@
 <h1>Threats × Components</h1>
 
 {% if active_threats and sorted_components %}
-{% set col_span = sorted_components | length + 1 %}
+{% set col_span = active_threats | length + 1 %}
 <div class="prop-table-wrap">
 <table class="prop-table" id="tc-table">
     <thead>
         <tr class="tc-class-row">
             <th class="prop-sticky"></th>
-            {% for cls, count in component_classes.items() %}
-            <th class="tc-class-header" colspan="{{ count }}">{{ cls }}</th>
+            {% for sev, count in severity_classes.items() %}
+            <th class="tc-class-header" colspan="{{ count }}">{{ sev }}</th>
             {% endfor %}
         </tr>
         <tr>
-            <th class="prop-sticky">Threat</th>
-            {% for comp_name, comp in sorted_components %}
-            <th class="prop-col" style="z-index: {{ loop.revindex }}">
+            <th class="prop-sticky">Component</th>
+            {% for tid, threat in active_threats %}
+            <th class="prop-col" style="z-index: {{ loop.revindex }}"
+                data-tooltip="{{ tid }} · {{ threat.description }} ({{ threat.severity or 'Unknown' }}) | Mitigated by: {{ threat.mapping.mitigations | join(', ') | replace('_', ' ') | replace('.', ': ') }}">
                 <div>
-                    <a href="component_{{ comp_name | slugify }}.html">{{ comp_name }}</a>
+                    <a href="threat_{{ tid }}.html">{{ tid }} - {{ threat.description }}</a>
                 </div>
             </th>
             {% endfor %}
         </tr>
     </thead>
     <tbody>
-        {% set ns = namespace(current_severity=None) %}
-        {% for tid, threat in active_threats %}
-        {% set severity = threat.severity or "Unknown" %}
-        {% if severity != ns.current_severity %}
-        {% set ns.current_severity = severity %}
+        {% set ns = namespace(current_class=None) %}
+        {% for comp_name, comp in sorted_components %}
+        {% set cls = comp.component_class or "Other" %}
+        {% if cls != ns.current_class %}
+        {% set ns.current_class = cls %}
         <tr class="prop-section-row">
-            <th class="prop-section-cell prop-sticky" colspan="{{ col_span }}">{{ severity }}</th>
+            <th class="prop-section-cell prop-sticky" colspan="{{ col_span }}">{{ cls }}</th>
         </tr>
         {% endif %}
         <tr>
-            <td class="prop-sticky tc-threat-cell"
-                data-tooltip="{{ tid }} · {{ threat.description }} ({{ severity }}) | Mitigated by: {{ threat.mapping.mitigations | join(', ') | replace('_', ' ') | replace('.', ': ') }}">
-                <a href="threat_{{ tid }}.html">{{ tid }}</a>
-                <div class="prop-meta">{{ threat.description | truncate(40) }}</div>
+            <td class="prop-sticky">
+                <a href="component_{{ comp_name | slugify }}.html">{{ comp_name }}</a>
             </td>
-            {% for comp_name, _ in sorted_components %}
+            {% for tid, threat in active_threats %}
             {% set cell = status[tid].get(comp_name) %}
             {% if cell %}
                 {% if cell.mitigated %}

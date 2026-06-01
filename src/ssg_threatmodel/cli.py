@@ -1,14 +1,12 @@
-import json
-import re
 import shutil
 import tomllib
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from . import views
+from . import views  # noqa: F401 — registers @view decorators
 from .models import SiteConfig, ThreatModel
-from .utils import render_views
+from .utils import render_views, slugify
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -34,10 +32,9 @@ def main():
 
     model = ThreatModel.load_report("report.json")
 
-    # Setup Jinja2 and its filters
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
     env.filters["basename"] = lambda p: Path(p).name
-    env.filters["slugify"] = lambda s: re.sub(r"[^\w]", "_", s)
+    env.filters["slugify"] = slugify
 
     # FIXME: These are a bit hackish, but work.
     env.filters["sort_by_class"] = lambda d: sorted(
@@ -48,7 +45,6 @@ def main():
         key=lambda item: 0 if not isinstance(item[1], bool) else 1,
     )
 
-    # Create output directory
     output_dir = Path("output")
     output_dir.mkdir(exist_ok=True)
 

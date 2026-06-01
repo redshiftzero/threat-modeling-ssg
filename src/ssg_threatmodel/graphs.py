@@ -144,9 +144,7 @@ def generate_dataflow(scenario: Scenario, components: dict[str, Component]) -> s
     for component in nodes_by_boundary.get("", []):
         emit_node(component, "    ")
 
-    name_to_id: dict = {}
-    for component in nodes:
-        name_to_id.setdefault(component.name, node_id(component))
+    name_to_id = {component.name: node_id(component) for component in nodes}
 
     for i, flow in enumerate(scenario.flows, 1):
         src = name_to_id.get(flow.source)

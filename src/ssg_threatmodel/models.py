@@ -1,4 +1,3 @@
-import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -124,8 +123,6 @@ class ThreatModel(BaseModel):
     properties: dict[str, Property]
     _analysis: dict[str, Any] | None = PrivateAttr(default=None)
     _scenario_by_name: dict[str, Scenario] | None = PrivateAttr(default=None)
-    _threats_sorted: list[tuple[str, Threat]] | None = PrivateAttr(default=None)
-    _threats_data: dict[str, dict[str, str]] | None = PrivateAttr(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -162,24 +159,6 @@ class ThreatModel(BaseModel):
             self._scenario_by_name = {s.name: s for s in self.scenarios}
         return self._scenario_by_name
 
-    def threats_sorted(self) -> list[tuple[str, Threat]]:
-        if self._threats_sorted is None:
-
-            def sort_key(item: tuple[str, Threat]) -> int:
-                match = re.search(r"\d+", item[0])
-                return int(match.group()) if match else 0
-
-            self._threats_sorted = sorted(self.threats.items(), key=sort_key)
-        return self._threats_sorted
-
-    def threats_data(self) -> dict[str, dict[str, str]]:
-        if self._threats_data is None:
-            self._threats_data = {
-                tid: {"name": t.description, "description": t.details}
-                for tid, t in self.threats.items()
-            }
-        return self._threats_data
-
     def analyze(self) -> dict[str, Any]:
         """Analyze the threat model and return useful statistics."""
         if self._analysis is not None:
@@ -204,7 +183,6 @@ class ThreatModel(BaseModel):
                     if scenario.name not in threats_to_scenarios[tid]:
                         threats_to_scenarios[tid].append(scenario.name)
 
-        # Severity distribution — only threats that actually appear in findings
         severity_order = ["Very High", "High", "Medium", "Low", "Unknown"]
         severity_counter = Counter(
             self.threats[tid].severity or "Unknown"
@@ -215,8 +193,7 @@ class ThreatModel(BaseModel):
             s: severity_counter[s] for s in severity_order if severity_counter[s]
         }
         for s, c in severity_counter.items():
-            if s not in severity_distribution and c:
-                severity_distribution[s] = c
+            severity_distribution.setdefault(s, c)
 
         self._analysis = {
             "threat_counter": threat_counter,
@@ -265,10 +242,8 @@ class ThreatModel(BaseModel):
 
         for tid in active_threat_ids:
             threat = self.threats[tid]
-            if not any(
-                mit_key.split(".", 1)[0] == prop_key
-                for mit_key in threat.mapping.mitigations
-            ):
+            tokens = threat.mapping.mitigations_for_prop(prop_key)
+            if not tokens:
                 continue
 
             affected_components = analysis["threats_to_components"].get(tid, set())
@@ -276,33 +251,25 @@ class ThreatModel(BaseModel):
                 mitigated_threats.append((tid, threat))
                 continue
 
-            missing_components = []
-            for comp_name in affected_components:
-                comp = self.components.get(comp_name)
-                if not comp:
-                    continue
-                tokens = threat.mapping.mitigations_for_prop(prop_key)
-                if not any(_token_satisfied(comp, tok) for tok in tokens):
-                    missing_components.append(comp_name)
-
-            if missing_components:
-                would_be_mitigated_threats.append((tid, threat))
-                for comp_name in missing_components:
-                    comp = self.components.get(comp_name)
-                    if not comp:
-                        continue
-                    entry = benefit_components.setdefault(
-                        comp_name,
-                        {
-                            "name": comp_name,
-                            "comp": comp,
-                            "current_value": comp.properties.get(prop_key),
-                            "threats": [],
-                        },
-                    )
-                    entry["threats"].append((tid, threat))
-            else:
+            missing = [
+                (name, comp)
+                for name in affected_components
+                if (comp := self.components.get(name)) is not None
+                and not any(_token_satisfied(comp, tok) for tok in tokens)
+            ]
+            if not missing:
                 mitigated_threats.append((tid, threat))
+                continue
+
+            would_be_mitigated_threats.append((tid, threat))
+            for comp_name, comp in missing:
+                entry = benefit_components.setdefault(comp_name, {
+                    "name": comp_name,
+                    "comp": comp,
+                    "current_value": comp.properties.get(prop_key),
+                    "threats": [],
+                })
+                entry["threats"].append((tid, threat))
 
         mitigated_threats.sort(key=lambda item: item[0])
         would_be_mitigated_threats.sort(key=lambda item: item[0])

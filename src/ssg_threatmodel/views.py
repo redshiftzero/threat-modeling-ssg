@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from .graphs import generate_highlighted_dataflow
-from .models import SiteConfig, ThreatModel, _token_satisfied
+from .models import Component, SiteConfig, ThreatModel, _token_satisfied
 from .utils import slugify, view
 
 
@@ -46,29 +46,26 @@ def threat_view(
         threat_scenario_data = []
         for scenario_name in scenario_names:
             scenario = scenario_by_name.get(scenario_name)
-            if scenario:
-                linked = scenario.linked_component_names
-                affected_in_scenario = [
-                    f.target
-                    for f in scenario.findings
-                    if f.threat_id == threat_id and f.target in linked
-                ]
-                if not affected_in_scenario:
-                    continue
-                highlighted_dfd = (
-                    generate_highlighted_dataflow(
-                        scenario.dfd, set(affected_in_scenario)
-                    )
-                    if scenario.dfd
-                    else None
-                )
-                threat_scenario_data.append(
-                    {
-                        "scenario": scenario,
-                        "affected_components": affected_in_scenario,
-                        "highlighted_dfd": highlighted_dfd,
-                    }
-                )
+            if not scenario:
+                continue
+            linked = scenario.linked_component_names
+            affected_in_scenario = [
+                f.target
+                for f in scenario.findings
+                if f.threat_id == threat_id and f.target in linked
+            ]
+            if not affected_in_scenario:
+                continue
+            highlighted_dfd = (
+                generate_highlighted_dataflow(scenario.dfd, set(affected_in_scenario))
+                if scenario.dfd
+                else None
+            )
+            threat_scenario_data.append({
+                "scenario": scenario,
+                "affected_components": affected_in_scenario,
+                "highlighted_dfd": highlighted_dfd,
+            })
         yield {
             "config": config,
             "model": model,
@@ -205,50 +202,38 @@ def threats_components_view(
         return (sev, int(match.group()) if match else 0)
 
     active_threats = sorted(
-        [
-            (tid, t)
-            for tid, t in model.threats.items()
-            if tid in analysis["threat_counter"]
-        ],
+        ((tid, t) for tid, t in model.threats.items() if tid in analysis["threat_counter"]),
         key=sort_key,
     )
 
-    def _fmt(tok: str) -> str:
+    def fmt(tok: str) -> str:
         return tok.replace("_", " ").replace(".", ": ")
 
-    affected_comp_names: set[str] = set()
+    affected: dict[str, Component] = {}
     status: dict[str, dict[str, dict]] = {}
     for tid, threat in active_threats:
         status[tid] = {}
         for comp_name, comp in model.components.items():
-            if threat.applies_to(comp):
-                affected_comp_names.add(comp_name)
-                satisfied = [t for t in threat.mapping.mitigations if _token_satisfied(comp, t)]
-                missing = [t for t in threat.mapping.mitigations if not _token_satisfied(comp, t)]
-                status[tid][comp_name] = {
-                    "mitigated": bool(satisfied),
-                    "satisfied": ", ".join(_fmt(t) for t in satisfied),
-                    "missing": ", ".join(_fmt(t) for t in missing),
-                }
+            if not threat.applies_to(comp):
+                continue
+            affected[comp_name] = comp
+            satisfied, missing = [], []
+            for tok in threat.mapping.mitigations:
+                (satisfied if _token_satisfied(comp, tok) else missing).append(tok)
+            status[tid][comp_name] = {
+                "mitigated": bool(satisfied),
+                "satisfied": ", ".join(fmt(t) for t in satisfied),
+                "missing": ", ".join(fmt(t) for t in missing),
+            }
 
-    sorted_components = sorted(
-        [
-            (name, comp)
-            for name, comp in model.components.items()
-            if name in affected_comp_names
-        ],
-        key=lambda x: (x[1].component_class, x[0]),
-    )
-
-    class_counter = Counter(
-        comp.component_class or "Other" for _, comp in sorted_components
-    )
+    sorted_components = sorted(affected.items(), key=lambda x: (x[1].component_class, x[0]))
 
     return {
         "config": config,
         "active_threats": active_threats,
         "sorted_components": sorted_components,
-        "component_classes": class_counter,
+        "component_classes": Counter(comp.component_class or "Other" for _, comp in sorted_components),
+        "severity_classes": Counter(t.severity or "Unknown" for _, t in active_threats),
         "status": status,
     }
 
@@ -261,26 +246,20 @@ def stats_view(
     analysis = model.analyze()
     active_threat_ids = set(analysis["threat_counter"])
 
-    # Mitigation coverage across all threat-component pairs
-    mitigated = 0
-    unmitigated = 0
-    for tid in active_threat_ids:
-        threat = model.threats.get(tid)
-        if not threat:
-            continue
-        for comp in model.components.values():
-            if threat.applies_to(comp):
-                if threat.is_mitigated(comp):
-                    mitigated += 1
-                else:
-                    unmitigated += 1
+    pairs = [
+        (threat, comp)
+        for tid in active_threat_ids
+        if (threat := model.threats.get(tid)) is not None
+        for comp in model.components.values()
+        if threat.applies_to(comp)
+    ]
+    mitigated = sum(1 for t, c in pairs if t.is_mitigated(c))
+    unmitigated = len(pairs) - mitigated
 
-    # Most affected components (by number of distinct threats)
     comp_threat_counts = Counter(
         {name: len(tids) for name, tids in analysis["components_to_threats"].items()}
     )
 
-    # Threats with no mitigations defined
     unmapped = sorted(
         tid
         for tid in active_threat_ids
@@ -299,14 +278,3 @@ def stats_view(
     }
 
 
-@view("/generator.html", log="Generating generator.html...")
-def generator_view(
-    config: SiteConfig,
-    model: ThreatModel,
-) -> dict[str, Any]:
-    return {
-        "config": config,
-        "all_threat_props": list(model.properties),
-        "threats_data": model.threats_data(),
-        "threats_sorted": model.threats_sorted(),
-    }
