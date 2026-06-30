@@ -2,6 +2,8 @@ import shutil
 import tomllib
 from pathlib import Path
 import sys
+
+import click
 from jinja2 import Environment, FileSystemLoader
 
 from . import views  # noqa: F401 — registers @view decorators
@@ -27,7 +29,17 @@ def copy_assets(assets_dst):
     shutil.copytree(assets_src, assets_dst)
 
 
-def main():
+@click.command()
+@click.option(
+    "-o",
+    "--output",
+    "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default="output",
+    show_default=True,
+    help="Output directory for the generated files",
+)
+def main(output_dir):
     config = load_config()
 
     model = ThreatModel.load_report(sys.stdin)
@@ -45,8 +57,7 @@ def main():
         key=lambda item: 0 if not isinstance(item[1], bool) else 1,
     )
 
-    output_dir = Path("output")
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     model.prepare_scenarios(config)
 
