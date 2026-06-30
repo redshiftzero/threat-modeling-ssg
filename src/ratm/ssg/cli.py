@@ -52,6 +52,15 @@ def main():
 
     copy_assets(output_dir / "assets")
 
+    if config.logo:
+        logo_src = Path(config.logo)
+        if logo_src.is_file():
+            shutil.copy(logo_src, output_dir / logo_src.name)
+            config.logo = logo_src.name
+        else:
+            print(f"Warning: logo '{config.logo}' not found")
+            config.logo = None
+
     render_views(
         env,
         output_dir,
