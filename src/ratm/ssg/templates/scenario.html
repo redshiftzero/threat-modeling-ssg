@@ -3,7 +3,7 @@
 {% block title %}Scenario: {{ scenario.name }} - Threat Model{% endblock %}
 
 {% block content %}
-<h1>Scenario: {{ scenario.name }} <small>(<a href="{{ scenario.url }}">{{ scenario.file }}</a>)</small></h1>
+<h1>Scenario: {{ scenario.name }} <small>{% if scenario.url and scenario.file %}(<a href="{{ scenario.url }}">{{ scenario.file }}</a>){% endif %}</small></h1>
 
 <p>{{ scenario.description }}</p>
 
@@ -23,26 +23,10 @@
 </div>
 
 <h2>Data Flow Diagram</h2>
-{% if scenario.dfd %}
-<div class="click-zoom">
-    <label>
-        <input type="checkbox">
-        <div id="dfd-container" class="dfd-container"></div>
-    </label>
-</div>
-{% endif %}
+{% with src=scenario.dfd %}{% include "includes/dfd_diagram.html" %}{% endwith %}
 
 <h2>Sequence Diagram</h2>
-{% if scenario.mermaid %}
-<div class="click-zoom">
-    <label>
-        <input type="checkbox">
-        <div id="mermaid-container" class="mermaid-container">
-            <pre class="mermaid">{{ scenario.mermaid }}</pre>
-        </div>
-    </label>
-</div>
-{% endif %}
+{% with src=scenario.mermaid %}{% include "includes/mermaid_diagram.html" %}{% endwith %}
 
 {% include "includes/flows_table.html" %}
 
@@ -53,77 +37,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if scenario.dfd %}
-<script src="assets/viz-global.js"></script>
-<script>
-    Viz.instance().then(function(viz) {
-        var svg = viz.renderSVGElement({{ scenario.dfd | tojson }});
-        svg.style.width = "100%";
-        svg.style.height = "auto";
-        document.getElementById("dfd-container").appendChild(svg);
-    });
-    var el = document.getElementById("dfd-container");
-    el.addEventListener("mousemove", function(e) {
-        var r = el.getBoundingClientRect();
-        el.style.transformOrigin =
-            ((e.clientX - r.left) / r.width * 100).toFixed(1) + "% " +
-            ((e.clientY - r.top)  / r.height * 100).toFixed(1) + "%";
-    });
-</script>
-{% endif %}
-{% if scenario.mermaid %}
-<script src="assets/mermaid.min.js"></script>
-<script>
-    (function() {
-        var src = document.querySelector('#mermaid-container .mermaid').textContent;
-        var mc  = document.getElementById("mermaid-container");
-
-        function themeVars() {
-            var s = getComputedStyle(document.documentElement);
-            var v = function(name) { return s.getPropertyValue(name).trim(); };
-            return {
-                background:        v('--color-bg'),
-                primaryColor:      v('--color-bg-header'),
-                primaryTextColor:  v('--color-text'),
-                primaryBorderColor:v('--color-border'),
-                lineColor:         v('--color-accent'),
-                secondaryColor:    v('--color-bg-container'),
-                tertiaryColor:     v('--color-bg-hover'),
-                noteBkgColor:      v('--color-bg-hover'),
-                noteTextColor:     v('--color-text'),
-                activationBkgColor:v('--color-bg-hover'),
-                actorBkg:          v('--color-bg-header'),
-                actorBorder:       v('--color-border'),
-                actorTextColor:    v('--color-text'),
-                actorLineColor:    v('--color-border'),
-                signalColor:       v('--color-text-dim'),
-                signalTextColor:   v('--color-text-dim'),
-                fontFamily:        "'Share Tech Mono', monospace",
-            };
-        }
-
-        function renderDiagram() {
-            mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: themeVars() });
-            mc.innerHTML = '';
-            var pre = document.createElement('pre');
-            pre.className = 'mermaid';
-            pre.textContent = src;
-            mc.appendChild(pre);
-            mermaid.run({ nodes: [pre] });
-        }
-
-        renderDiagram();
-        document.addEventListener('theme-changed', function() {
-            setTimeout(renderDiagram, 50);
-        });
-
-        mc.addEventListener("mousemove", function(e) {
-            var r = mc.getBoundingClientRect();
-            mc.style.transformOrigin =
-                ((e.clientX - r.left) / r.width  * 100).toFixed(1) + "% " +
-                ((e.clientY - r.top)  / r.height * 100).toFixed(1) + "%";
-        });
-    })();
-</script>
-{% endif %}
+{% with has_dfd=scenario.dfd, has_mermaid=scenario.mermaid %}
+{% include "includes/diagram_scripts.html" %}
+{% endwith %}
 {% endblock %}
